@@ -1,6 +1,6 @@
 # Welcome to SociiLabs GitHub
 
-SociiLabs LLC is a Wyoming- and Lahore-based software development agency providing custom web design, full-stack development, AI-powered solutions, and technical consulting. We serve a global clientele across the US, UK, Canada, and Europe—ranging from early-stage startups to enterprise-scale businesses.
+SociiLabs LLC is a software development agency providing custom web design, full-stack development, AI-powered solutions, and technical consulting. We serve a global clientele across the US, UK, Canada, and Europe—ranging from early-stage startups to enterprise-scale businesses.
 
 This repository is part of an internal or client project maintained by the SociiLabs engineering team.
 
