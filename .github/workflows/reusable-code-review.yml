@@ -1,10 +1,33 @@
-name: AI Code Review Agent
+name: Reusable AI Code Review
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-  issue_comment:
-    types: [created]
+  workflow_call:
+    inputs:
+      skip_labels:
+        type: string
+        default: 'skip-review,wip,draft'
+        required: false
+      max_diff_size:
+        type: number
+        default: 100000
+        required: false
+      enable_jira:
+        type: boolean
+        default: true
+        required: false
+      ai_model:
+        type: string
+        default: 'claude-sonnet-4-20250514'
+        required: false
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+      JIRA_URL:
+        required: false
+      JIRA_EMAIL:
+        required: false
+      JIRA_API_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -13,17 +36,10 @@ permissions:
 
 jobs:
   code-review:
-    # Only run on PR comments or PR events
-    if: |
-      (github.event_name == 'pull_request') ||
-      (github.event_name == 'issue_comment' && 
-       github.event.issue.pull_request && 
-       contains(github.event.comment.body, '/review'))
-    
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout code
+      - name: Checkout calling repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -32,45 +48,48 @@ jobs:
       - name: Get PR diff
         id: pr-diff
         run: |
-          # Get the base branch
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
           HEAD_SHA="${{ github.event.pull_request.head.sha }}"
           
-          # Fetch base branch
           git fetch origin $BASE_SHA
-          
-          # Get the diff
           git diff $BASE_SHA...$HEAD_SHA > pr_diff.txt
-          
-          # Also get file list
           git diff --name-status $BASE_SHA...$HEAD_SHA > changed_files.txt
           
-          echo "Files changed:"
-          cat changed_files.txt
+          DIFF_SIZE=$(wc -c < pr_diff.txt)
+          if [ $DIFF_SIZE -gt ${{ inputs.max_diff_size }} ]; then
+            echo "skip_review=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip_review=false" >> $GITHUB_OUTPUT
+          fi
       
-      - name: Extract Jira ticket from PR
+      - name: Extract Jira ticket
         id: jira-ticket
+        if: steps.pr-diff.outputs.skip_review != 'true'
         run: |
-          # Extract Jira ticket from PR title or branch name
           PR_TITLE="${{ github.event.pull_request.title }}"
           BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
-          
-          # Try to extract Jira ticket (format: PROJ-123)
           TICKET=$(echo "$PR_TITLE $BRANCH_NAME" | grep -oE '[A-Z]+-[0-9]+' | head -1 || echo "")
-          
           echo "jira_ticket=$TICKET" >> $GITHUB_OUTPUT
-          echo "Found Jira ticket: $TICKET"
+      
+      - name: Checkout central scripts
+        if: steps.pr-diff.outputs.skip_review != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/.github
+          path: .central-scripts
       
       - name: Setup Python
+        if: steps.pr-diff.outputs.skip_review != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       
       - name: Install dependencies
-        run: |
-          pip install anthropic jira requests
+        if: steps.pr-diff.outputs.skip_review != 'true'
+        run: pip install anthropic jira requests
       
       - name: Run AI Code Review
+        if: steps.pr-diff.outputs.skip_review != 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           JIRA_URL: ${{ secrets.JIRA_URL }}
@@ -82,16 +101,17 @@ jobs:
           JIRA_TICKET: ${{ steps.jira-ticket.outputs.jira_ticket }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
-        run: |
-          python .github/scripts/code_review_agent.py
+          AI_MODEL: ${{ inputs.ai_model }}
+        run: python .central-scripts/scripts/code_review_agent.py
       
       - name: Upload review artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: code-review-results
+          name: code-review-results-${{ github.event.pull_request.number }}
           path: |
             review_*.json
             pr_diff.txt
             changed_files.txt
           retention-days: 30
+          if-no-files-found: ignore
