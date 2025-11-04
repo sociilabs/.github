@@ -1,0 +1,97 @@
+name: AI Code Review Agent
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  code-review:
+    # Only run on PR comments or PR events
+    if: |
+      (github.event_name == 'pull_request') ||
+      (github.event_name == 'issue_comment' && 
+       github.event.issue.pull_request && 
+       contains(github.event.comment.body, '/review'))
+    
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      
+      - name: Get PR diff
+        id: pr-diff
+        run: |
+          # Get the base branch
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          
+          # Fetch base branch
+          git fetch origin $BASE_SHA
+          
+          # Get the diff
+          git diff $BASE_SHA...$HEAD_SHA > pr_diff.txt
+          
+          # Also get file list
+          git diff --name-status $BASE_SHA...$HEAD_SHA > changed_files.txt
+          
+          echo "Files changed:"
+          cat changed_files.txt
+      
+      - name: Extract Jira ticket from PR
+        id: jira-ticket
+        run: |
+          # Extract Jira ticket from PR title or branch name
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
+          
+          # Try to extract Jira ticket (format: PROJ-123)
+          TICKET=$(echo "$PR_TITLE $BRANCH_NAME" | grep -oE '[A-Z]+-[0-9]+' | head -1 || echo "")
+          
+          echo "jira_ticket=$TICKET" >> $GITHUB_OUTPUT
+          echo "Found Jira ticket: $TICKET"
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install anthropic jira requests
+      
+      - name: Run AI Code Review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          JIRA_URL: ${{ secrets.JIRA_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO_FULL_NAME: ${{ github.repository }}
+          JIRA_TICKET: ${{ steps.jira-ticket.outputs.jira_ticket }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          python .github/scripts/code_review_agent.py
+      
+      - name: Upload review artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-review-results
+          path: |
+            review_*.json
+            pr_diff.txt
+            changed_files.txt
+          retention-days: 30
