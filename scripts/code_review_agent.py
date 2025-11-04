@@ -11,6 +11,7 @@ from jira import JIRA
 import requests
 from typing import Dict, List, Optional
 import sys
+import base64
 
 class CodeReviewAgent:
     def __init__(self):
@@ -285,36 +286,65 @@ Be specific, actionable, and focus on real issues. Don't be overly critical - re
         try:
             print(f"🔍 Attempting to fetch Jira issue: {self.jira_ticket}")
             
-            # Test authentication first
-            try:
-                myself = self.jira.myself()
-                print(f"✅ Jira auth successful. Logged in as: {myself.get('emailAddress', 'unknown')}")
-            except Exception as auth_error:
-                print(f"❌ Jira authentication failed: {auth_error}")
-                return
-            
-            # Try to get the issue
+            # Get the issue
             issue = self.jira.issue(self.jira_ticket)
             print(f"✅ Successfully fetched issue: {issue.key}")
             
-            # Create comment with testing info
-            testing_section = "h3. Testing Requirements for PR Merge\n\n"
-            testing_section += f"*From PR #{self.pr_number}: {self.pr_title}*\n\n"
-            testing_section += "h4. What Needs to Be Tested:\n"
+            # Create comment with testing info - API v3 format
+            testing_lines = [
+                "h3. Testing Requirements for PR Merge",
+                "",
+                f"*From PR #{self.pr_number}: {self.pr_title}*",
+                "",
+                "h4. What Needs to Be Tested:",
+            ]
             
             for req in review.get('testing_requirements', []):
-                testing_section += f"* {req}\n"
+                testing_lines.append(f"* {req}")
             
-            testing_section += "\nh4. Manual Testing Steps:\n"
+            testing_lines.append("")
+            testing_lines.append("h4. Manual Testing Steps:")
+            
             for i, step in enumerate(review.get('manual_testing_steps', []), 1):
-                testing_section += f"# {step}\n"
+                testing_lines.append(f"# {step}")
             
-            testing_section += f"\n----\n_Auto-generated from [PR #{self.pr_number}|https://github.com/{self.repo}/pull/{self.pr_number}]_"
+            testing_lines.append("")
+            testing_lines.append("----")
+            testing_lines.append(f"_Auto-generated from [PR #{self.pr_number}|https://github.com/{self.repo}/pull/{self.pr_number}]_")
             
-            # Add comment to ticket
-            self.jira.add_comment(issue, testing_section)
+            # API v3 requires this format
+            comment_body = {
+                "body": {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": "\n".join(testing_lines)
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
             
-            print(f"✅ Updated Jira ticket {self.jira_ticket}")
+            # Add comment using REST API directly (jira library doesn't handle v3 format well)
+            url = f"{self.jira_url}/rest/api/3/issue/{self.jira_ticket}/comment"
+            headers = {
+                "Authorization": f"Basic {base64.b64encode(f'{self.jira_email}:{self.jira_token}'.encode()).decode()}",
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.post(url, headers=headers, json=comment_body)
+            
+            if response.status_code in [200, 201]:
+                print(f"✅ Updated Jira ticket {self.jira_ticket}")
+            else:
+                print(f"❌ Failed to update Jira: {response.status_code}")
+                print(response.text)
             
         except Exception as e:
             print(f"❌ Error updating Jira: {e}")
