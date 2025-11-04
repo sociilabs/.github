@@ -29,10 +29,21 @@ class CodeReviewAgent:
         self.client = anthropic.Anthropic(api_key=self.anthropic_key)
         
         if self.jira_url and self.jira_email and self.jira_token:
-            self.jira = JIRA(
-                server=self.jira_url,
-                basic_auth=(self.jira_email, self.jira_token)
-            )
+            print(f"🔍 Initializing Jira with URL: {self.jira_url}")
+            print(f"🔍 Jira Email: {self.jira_email}")
+            print(f"🔍 Jira Token exists: {bool(self.jira_token)}")
+            print(f"🔍 Jira Token length: {len(self.jira_token) if self.jira_token else 0}")
+            
+            try:
+                self.jira = JIRA(
+                    server=self.jira_url,
+                    basic_auth=(self.jira_email, self.jira_token),
+                    options={'rest_api_version': '3'}
+                )
+                print("✅ Jira client initialized successfully")
+            except Exception as e:
+                print(f"❌ Failed to initialize Jira: {e}")
+                self.jira = None
         else:
             self.jira = None
             print("⚠️  Jira credentials not found. Skipping Jira integration.")
@@ -272,7 +283,19 @@ Be specific, actionable, and focus on real issues. Don't be overly critical - re
             return
         
         try:
+            print(f"🔍 Attempting to fetch Jira issue: {self.jira_ticket}")
+            
+            # Test authentication first
+            try:
+                myself = self.jira.myself()
+                print(f"✅ Jira auth successful. Logged in as: {myself.get('emailAddress', 'unknown')}")
+            except Exception as auth_error:
+                print(f"❌ Jira authentication failed: {auth_error}")
+                return
+            
+            # Try to get the issue
             issue = self.jira.issue(self.jira_ticket)
+            print(f"✅ Successfully fetched issue: {issue.key}")
             
             # Create comment with testing info
             testing_section = "h3. Testing Requirements for PR Merge\n\n"
@@ -293,12 +316,10 @@ Be specific, actionable, and focus on real issues. Don't be overly critical - re
             
             print(f"✅ Updated Jira ticket {self.jira_ticket}")
             
-            # Optionally update a custom field for testing notes
-            # Uncomment and modify if you have a custom field:
-            # issue.update(fields={'customfield_10XXX': testing_section})
-            
         except Exception as e:
             print(f"❌ Error updating Jira: {e}")
+            import traceback
+            print(traceback.format_exc())
     
     def run(self):
         """Main execution flow"""
