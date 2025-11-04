@@ -290,48 +290,85 @@ Be specific, actionable, and focus on real issues. Don't be overly critical - re
             issue = self.jira.issue(self.jira_ticket)
             print(f"✅ Successfully fetched issue: {issue.key}")
             
-            # Create comment with testing info - API v3 format
-            testing_lines = [
-                "h3. Testing Requirements for PR Merge",
-                "",
-                f"*From PR #{self.pr_number}: {self.pr_title}*",
-                "",
-                "h4. What Needs to Be Tested:",
+            # Build ADF content
+            content = [
+                {
+                    "type": "heading",
+                    "attrs": {"level": 3},
+                    "content": [{"type": "text", "text": "Testing Requirements for PR Merge"}]
+                },
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": f"From PR #{self.pr_number}: {self.pr_title}", "marks": [{"type": "em"}]}
+                    ]
+                },
+                {
+                    "type": "heading",
+                    "attrs": {"level": 4},
+                    "content": [{"type": "text", "text": "What Needs to Be Tested:"}]
+                }
             ]
             
-            for req in review.get('testing_requirements', []):
-                testing_lines.append(f"* {req}")
+            # Add testing requirements as bullet list
+            if review.get('testing_requirements'):
+                bullet_items = []
+                for req in review.get('testing_requirements', []):
+                    bullet_items.append({
+                        "type": "listItem",
+                        "content": [{
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": req}]
+                        }]
+                    })
+                content.append({"type": "bulletList", "content": bullet_items})
             
-            testing_lines.append("")
-            testing_lines.append("h4. Manual Testing Steps:")
+            # Add manual testing steps header
+            content.append({
+                "type": "heading",
+                "attrs": {"level": 4},
+                "content": [{"type": "text", "text": "Manual Testing Steps:"}]
+            })
             
-            for i, step in enumerate(review.get('manual_testing_steps', []), 1):
-                testing_lines.append(f"# {step}")
+            # Add manual testing steps as numbered list
+            if review.get('manual_testing_steps'):
+                ordered_items = []
+                for step in review.get('manual_testing_steps', []):
+                    ordered_items.append({
+                        "type": "listItem",
+                        "content": [{
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": step}]
+                        }]
+                    })
+                content.append({"type": "orderedList", "content": ordered_items})
             
-            testing_lines.append("")
-            testing_lines.append("----")
-            testing_lines.append(f"_Auto-generated from [PR #{self.pr_number}|https://github.com/{self.repo}/pull/{self.pr_number}]_")
+            # Add separator and link
+            content.append({"type": "rule"})
+            content.append({
+                "type": "paragraph",
+                "content": [
+                    {"type": "text", "text": "Auto-generated from ", "marks": [{"type": "em"}]},
+                    {
+                        "type": "text",
+                        "text": f"PR #{self.pr_number}",
+                        "marks": [
+                            {"type": "em"},
+                            {"type": "link", "attrs": {"href": f"https://github.com/{self.repo}/pull/{self.pr_number}"}}
+                        ]
+                    }
+                ]
+            })
             
-            # API v3 requires this format
             comment_body = {
                 "body": {
                     "type": "doc",
                     "version": 1,
-                    "content": [
-                        {
-                            "type": "paragraph",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": "\n".join(testing_lines)
-                                }
-                            ]
-                        }
-                    ]
+                    "content": content
                 }
             }
             
-            # Add comment using REST API directly (jira library doesn't handle v3 format well)
+            # Add comment using REST API directly
             url = f"{self.jira_url}/rest/api/3/issue/{self.jira_ticket}/comment"
             headers = {
                 "Authorization": f"Basic {base64.b64encode(f'{self.jira_email}:{self.jira_token}'.encode()).decode()}",
