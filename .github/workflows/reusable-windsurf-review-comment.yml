@@ -1,0 +1,70 @@
+name: Reusable Windsurf Review Comment
+
+on:
+  workflow_call:
+    inputs:
+      comment_text:
+        type: string
+        default: '/windsurf-review'
+        required: false
+        description: 'The comment text to add to the PR'
+      skip_if_exists:
+        type: boolean
+        default: false
+        required: false
+        description: 'Skip adding comment if it already exists'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  add-windsurf-comment:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check for existing comment
+        id: check-comment
+        if: inputs.skip_if_exists == true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+            
+            const commentText = '${{ inputs.comment_text }}';
+            const existingComment = comments.data.find(comment => 
+              comment.body.trim() === commentText.trim() && 
+              comment.user.login === 'github-actions[bot]'
+            );
+            
+            if (existingComment) {
+              console.log('Comment already exists, skipping...');
+              core.setOutput('skip', 'true');
+            } else {
+              core.setOutput('skip', 'false');
+            }
+      
+      - name: Add Windsurf Review Comment
+        if: steps.check-comment.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const commentText = '${{ inputs.comment_text }}';
+            
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: commentText
+            });
+            
+            console.log(`Added comment: "${commentText}"`);
+      
+      - name: Comment skipped
+        if: steps.check-comment.outputs.skip == 'true'
+        run: |
+          echo "Comment '${{ inputs.comment_text }}' already exists on this PR, skipping..."

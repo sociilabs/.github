@@ -1,0 +1,15 @@
+# Example workflow for other repositories to use the reusable Windsurf review comment workflow
+# Place this file in your repository at: .github/workflows/pr-windsurf-review.yml
+
+name: PR Windsurf Review Comment
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  add-windsurf-comment:
+    uses: sociilabs/.github/.github/workflows/reusable-windsurf-review-comment.yml@main
+    with:
+      comment_text: '/windsurf-review'  # Optional: defaults to '/windsurf-review'
+      skip_if_exists: true              # Optional: prevents duplicate comments
